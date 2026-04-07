@@ -1,0 +1,51 @@
+<html>
+<head>
+  <title>AgentMail Integration</title>
+  <script type="module">
+    import { store } from "/plugins/agentmail/webui/agentmail-config-store.js";
+  </script>
+</head>
+
+<body>
+  <div x-data x-init="$store.agentmailConfig.init()">
+    <template x-if="$store.agentmailConfig && config">
+      <div>
+        <div class="section-title">AgentMail Integration</div>
+        <div class="section-description">
+          Configure AgentMail API access for sending and receiving emails through Agent Zero.
+        </div>
+
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">API Base URL</div>
+            <div class="field-description">AgentMail API endpoint. Leave default unless you use a custom deployment.</div>
+          </div>
+          <div class="field-control">
+            <input type="text" x-model="config.api_base_url" placeholder="https://api.agentmail.to/v0" />
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">API Key</div>
+            <div class="field-description">Your AgentMail API key used for inbox and message operations.</div>
+          </div>
+          <div class="field-control">
+            <input type="password" x-model="config.api_key" placeholder="Enter AgentMail API key" />
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">Default Inbox ID</div>
+            <div class="field-description">Inbox used by default when a tool call does not specify an inbox explicitly.</div>
+          </div>
+          <div class="field-control">
+            <input type="text" x-model="config.default_inbox" placeholder="your-inbox@agentmail.to" />
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+</body>
+</html>
