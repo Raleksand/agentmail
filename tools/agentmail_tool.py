@@ -1,75 +1,94 @@
+import importlib
+import json
+
+from helpers import plugins
 from helpers.tool import Tool, Response
-from usr.plugins.agentmail.helpers.agentmail_client import AgentMailClient
 
 
 class AgentmailTool(Tool):
     name = "agentmail_tool"
     description = "Send and receive emails via the AgentMail API."
 
-    async def execute(self, args):
-        action = str(args.get("action", "")).strip()
-        config = self.get_plugin_config() or {}
-        client = AgentMailClient(config)
+    @staticmethod
+    def _fmt(data):
+        try:
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except Exception:
+            return str(data)
 
-        if action == "list_inboxes":
-            limit = int(args.get("limit", 100))
-            result = client.list_inboxes(limit=limit)
-            return Response(success=True, data=result)
+    async def execute(self, action="", **kwargs):
+        def arg(name, default=None):
+            return kwargs.get(name, self.args.get(name, default))
 
-        if action == "create_inbox":
-            email = args.get("email")
-            username = args.get("username")
-            domain = args.get("domain")
-            display_name = args.get("display_name")
-            result = client.create_inbox(
-                email=email,
-                username=username,
-                domain=domain,
-                display_name=display_name,
-            )
-            return Response(success=True, data=result)
+        action = str(action or arg("action", "")).strip()
 
-        if action == "send_email":
-            inbox_id = args.get("inbox_id") or config.get("default_inbox")
-            to = args.get("to")
-            subject = args.get("subject", "")
-            text = args.get("text")
-            html = args.get("html")
-            labels = args.get("labels")
+        try:
+            config = plugins.get_plugin_config("agentmail", agent=self.agent) or {}
+            client_mod = importlib.import_module("usr.plugins.agentmail.helpers.agentmail_client")
+            client_mod = importlib.reload(client_mod)
+            client = client_mod.AgentMailClient(config)
 
-            if not inbox_id:
-                return Response(success=False, error="Missing inbox_id")
-            if not to:
-                return Response(success=False, error="Missing to")
-            if text is None and html is None:
-                return Response(success=False, error="Missing text or html")
+            if action == "list_inboxes":
+                limit = int(arg("limit", 100))
+                result = client.list_inboxes(limit=limit)
+                return Response(message=self._fmt(result), break_loop=False)
 
-            if isinstance(to, str):
-                to = [to]
+            if action == "create_inbox":
+                result = client.create_inbox(
+                    email=arg("email"),
+                    username=arg("username"),
+                    domain=arg("domain"),
+                    display_name=arg("display_name"),
+                )
+                return Response(message=self._fmt(result), break_loop=False)
 
-            result = client.send_email(
-                inbox_id=inbox_id,
-                to=to,
-                subject=subject,
-                text=text,
-                html=html,
-                labels=labels,
-            )
-            return Response(success=True, data=result)
+            if action == "send_email":
+                inbox_id = arg("inbox_id") or config.get("default_inbox")
+                to = arg("to")
+                subject = arg("subject", "")
+                text = arg("text")
+                html = arg("html")
+                labels = arg("labels")
+                attachments = arg("attachments")
+                thread_id = arg("thread_id")
 
-        if action == "list_messages":
-            inbox_id = args.get("inbox_id") or config.get("default_inbox")
-            limit = int(args.get("limit", 100))
-            if not inbox_id:
-                return Response(success=False, error="Missing inbox_id")
-            result = client.list_messages(inbox_id=inbox_id, limit=limit)
-            return Response(success=True, data=result)
+                if not inbox_id:
+                    return Response(message="Error: Missing inbox_id", break_loop=False)
+                if not to:
+                    return Response(message="Error: Missing to", break_loop=False)
+                if text is None and html is None and not attachments:
+                    return Response(message="Error: Missing text, html, or attachments", break_loop=False)
 
-        if action == "get_message":
-            message_id = args.get("message_id")
-            if not message_id:
-                return Response(success=False, error="Missing message_id")
-            result = client.get_message(message_id)
-            return Response(success=True, data=result)
+                if isinstance(to, str):
+                    to = [to]
 
-        return Response(success=False, error=f"Unknown action: {action}")
+                result = client.send_email(
+                    inbox_id=inbox_id,
+                    to=to,
+                    subject=subject,
+                    text=text,
+                    html=html,
+                    labels=labels,
+                    attachments=attachments,
+                    thread_id=thread_id,
+                )
+                return Response(message=self._fmt(result), break_loop=False)
+
+            if action == "list_messages":
+                inbox_id = arg("inbox_id") or config.get("default_inbox")
+                limit = int(arg("limit", 100))
+                if not inbox_id:
+                    return Response(message="Error: Missing inbox_id", break_loop=False)
+                result = client.list_messages(inbox_id=inbox_id, limit=limit)
+                return Response(message=self._fmt(result), break_loop=False)
+
+            if action == "get_message":
+                message_id = arg("message_id")
+                if not message_id:
+                    return Response(message="Error: Missing message_id", break_loop=False)
+                result = client.get_message(message_id)
+                return Response(message=self._fmt(result), break_loop=False)
+
+            return Response(message=f"Error: Unknown action: {action}", break_loop=False)
+        except Exception as e:
+            return Response(message=f"Error in agentmail_tool: {e}", break_loop=False)

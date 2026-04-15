@@ -1,4 +1,6 @@
 import os
+from urllib.parse import quote
+
 import requests
 
 
@@ -56,20 +58,94 @@ class AgentMailClient:
         text: str | None = None,
         html: str | None = None,
         labels: list | None = None,
+        attachments: list | None = None,
+        thread_id: str | None = None,
     ):
         payload = {
-            "inbox_id": inbox_id,
             "to": to,
             "subject": subject,
             "text": text,
             "html": html,
             "labels": labels or [],
+            "attachments": attachments or [],
+            "thread_id": thread_id,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
-        return self._request("POST", "/messages/send", json=payload)
+        return self._request("POST", f"/inboxes/{inbox_id}/messages/send", json=payload)
 
     def list_messages(self, inbox_id, limit: int = 100):
-        return self._request("GET", f"/messages?inbox_id={inbox_id}&limit={int(limit)}")
+        return self._request("GET", f"/inboxes/{inbox_id}/messages?limit={int(limit)}")
 
     def get_message(self, message_id):
-        return self._request("GET", f"/messages/{message_id}")
+        clean_id = str(message_id).strip().strip("<>").strip()
+        return self._request("GET", f"/messages/{quote(clean_id, safe='@._-')}")
+
+    # ── Attachment handling ──────────────────────────────────────────────
+
+    _TEXT_EXTENSIONS = frozenset(
+        ".txt .md .csv .json .xml .html .log .py .js .css .yaml .yml .ini .cfg .sh .bat".split()
+    )
+
+    def download_attachment(self, inbox_id: str, thread_id: str, attachment_id: str) -> bytes | None:
+        """Download an attachment's raw content via the thread endpoint.
+
+        Returns the file bytes, or None on failure.
+        """
+        try:
+            meta = self._request(
+                "GET",
+                f"/inboxes/{inbox_id}/threads/{thread_id}/attachments/{attachment_id}",
+            )
+            download_url = meta.get("download_url")
+            if not download_url:
+                return None
+            resp = self.session.get(download_url, timeout=30)
+            resp.raise_for_status()
+            return resp.content
+        except Exception:
+            return None
+
+    def get_attachment_text(
+        self,
+        inbox_id: str,
+        thread_id: str,
+        attachments: list[dict],
+    ) -> str:
+        """Download text attachments and return their combined content.
+
+        Binary attachments are noted by filename and size only.
+        """
+        parts: list[str] = []
+        for att in attachments:
+            filename = att.get("filename", "unknown")
+            content_type = att.get("content_type", "")
+            att_id = att.get("attachment_id", "")
+            if not att_id:
+                continue
+
+            content = self.download_attachment(inbox_id, thread_id, att_id)
+            if content is None:
+                parts.append(f"[Attachment: {filename} — download failed]")
+                continue
+
+            is_text = (
+                content_type.startswith("text/")
+                or any(filename.lower().endswith(ext) for ext in self._TEXT_EXTENSIONS)
+            )
+
+            if is_text:
+                try:
+                    text = content.decode("utf-8")
+                    parts.append(
+                        f"--- Attachment: {filename} ---\n{text}\n--- End of attachment ---"
+                    )
+                except UnicodeDecodeError:
+                    parts.append(
+                        f"[Attachment: {filename} ({len(content)} bytes, binary content)]"
+                    )
+            else:
+                parts.append(
+                    f"[Attachment: {filename} ({content_type}, {len(content)} bytes)]"
+                )
+
+        return "\n\n".join(parts)
