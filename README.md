@@ -1,12 +1,14 @@
 # AgentMail Integration
 
-AgentMail Integration is an Agent Zero plugin for sending and receiving email through the [AgentMail API](https://agentmail.to/), including attachments and thread support.
+AgentMail Integration is an Agent Zero plugin for sending and receiving email through the [AgentMail API](https://agentmail.to/), including attachments, thread support, and conversation continuity.
 
 ## Features
 
 - **Send email** — plain text, HTML, or both
 - **Attachments** — send any file type as a Base64-encoded attachment
 - **Thread replies** — reply within an existing email thread using `thread_id`
+- **Thread continuity** — agent retains conversation context across emails in the same thread
+- **Outbox attachments** — agent can save files that are automatically attached to reply emails
 - **List inboxes & messages** — browse available inboxes and read messages
 - **Get message** — retrieve a single message by ID
 - **Download attachments** — programmatically download and decode email attachments
@@ -20,8 +22,8 @@ AgentMail Integration is an Agent Zero plugin for sending and receiving email th
 | `plugin.yaml` | Plugin metadata |
 | `tools/agentmail_tool.py` | Agent Zero tool implementation |
 | `helpers/agentmail_client.py` | AgentMail API client (send, list, get, download attachments) |
-| `api/process_email.py` | Loopback endpoint for email-to-agent processing |
-| `extensions/python/system_prompt/_20_agentmail_context.py` | System prompt override for email sessions |
+| `api/process_email.py` | Loopback endpoint for email-to-agent processing (thread continuity + outbox) |
+| `extensions/python/system_prompt/_20_agentmail_context.py` | System prompt override for email sessions (includes outbox instructions) |
 | `prompts/agent.system.tool.agentmail.md` | System-level tool documentation |
 | `prompts/agent.mail.tool.agentmail.md` | Tool-level usage documentation |
 | `webui/config.html` | Plugin configuration UI |
@@ -92,12 +94,43 @@ The poller will:
 - Download and include text attachment content
 - Send the email to Agent Zero for processing
 - Automatically reply with the agent's response
+- Attach any outbox files saved by the agent
+
+### Thread Continuity
+
+When an email arrives in an existing thread, the plugin reuses the same Agent Zero context. This means the agent **remembers the full conversation** from previous emails in that thread — no need to repeat context.
+
+- Thread → Context mapping is persisted in `agentmail_threads.json`
+- If the server restarts and the context is lost, a new one is automatically created
+
+### Outbox Attachments
+
+The agent can save files to a per-context outbox directory, and they will be **automatically attached** to the reply email:
+
+1. The system prompt tells the agent the outbox path for the current context
+2. The agent saves files there (e.g., translations, reports, generated content)
+3. After the agent finishes, all outbox files are collected and attached to the reply
+4. The outbox is cleaned up after successful send
+
+Example — the agent saves a translation:
+```python
+with open('/a0/usr/workdir/agentmail_outbox/abc123/translation.txt', 'w') as f:
+    f.write(translated_text)
+```
 
 ### Safety Features
 
 - File lock prevents concurrent runs
 - Email IDs are recorded before processing (prevents re-processing on crash)
 - Maximum emails per cycle (default: 5) prevents runaway processing
+
+## Version History
+
+| Version | Changes |
+|---------|---------|
+| 1.2.0 | Thread continuity (context reuse across emails), outbox attachments, updated system prompt |
+| 1.1.0 | Attachment support, thread_id for replies, attachment download in client |
+| 1.0.0 | Initial release — send/receive emails, auto-reply poller |
 
 ## Notes
 
